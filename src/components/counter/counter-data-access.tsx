@@ -63,14 +63,14 @@ export function useCounterProgram() {
             owner: owner,
           })
           .rpc();
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Transaction failed:', error);
         // Log detailed error information
-        if (error.logs) {
-          console.error('Transaction logs:', error.logs);
+        if (error && typeof error === 'object' && 'logs' in error) {
+          console.error('Transaction logs:', (error as { logs?: string[] }).logs);
         }
-        if (error.error) {
-          console.error('Error details:', error.error);
+        if (error && typeof error === 'object' && 'error' in error) {
+          console.error('Error details:', (error as { error?: unknown }).error);
         }
         throw error;
       }
