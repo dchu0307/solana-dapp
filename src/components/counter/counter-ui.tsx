@@ -1,6 +1,6 @@
 'use client'
 
-import { PublicKey } from '@solana/web3.js'
+import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js'
 import { useCounterProgram, useCounterProgramAccount } from './counter-data-access'
 import { useState } from 'react';
 import { useWallet} from '@solana/wallet-adapter-react';
@@ -9,7 +9,7 @@ export function CounterCreate() {
   // user input fields
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
-  const { createEntry } = useCounterProgram();
+  const { createEntry, walletBalance } = useCounterProgram();
   const { publicKey } = useWallet();
 
   const isFormValid = title.trim() !== '' && message.trim() !== '';
@@ -24,8 +24,20 @@ export function CounterCreate() {
     return <p>Connect Your Wallet.</p>
   }
 
+  const balance = walletBalance.data ?? 0;
+  const balanceSOL = balance / LAMPORTS_PER_SOL;
+  const hasEnoughBalance = balance >= 0.003 * LAMPORTS_PER_SOL; // ~0.003 SOL minimum
+
   return (
-    <div>
+    <div className="space-y-4">
+      {walletBalance.data !== undefined && (
+        <div className={`text-sm ${hasEnoughBalance ? 'text-success' : 'text-warning'}`}>
+          Wallet Balance: {balanceSOL.toFixed(4)} SOL
+          {!hasEnoughBalance && (
+            <span className="block mt-1">⚠️ You need at least 0.003 SOL to create entries</span>
+          )}
+        </div>
+      )}
       <input 
         type="text"
         placeholder="Title"
@@ -41,7 +53,7 @@ export function CounterCreate() {
       />
       <button
         onClick={handleSubmit}
-        disabled={createEntry.isPending || !isFormValid}
+        disabled={createEntry.isPending || !isFormValid || !hasEnoughBalance}
         className="btn btn-xs lg:btn-md btn-primary">
           {createEntry.isPending ? 'Creating...' : 'Create Journal Entry'}
       </button>

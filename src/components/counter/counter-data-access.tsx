@@ -1,8 +1,8 @@
 'use client'
 
 import { getCounterProgram, getCounterProgramId } from '@project/anchor'
-import { useConnection } from '@solana/wallet-adapter-react'
-import { Cluster, PublicKey } from '@solana/web3.js'
+import { useConnection, useWallet } from '@solana/wallet-adapter-react'
+import { Cluster, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useCluster } from '../cluster/cluster-data-access'
@@ -19,10 +19,18 @@ interface CreateEntryArgs {
 export function useCounterProgram() {
   const { connection } = useConnection()
   const { cluster } = useCluster()
+  const { publicKey } = useWallet()
   const transactionToast = useTransactionToast()
   const provider = useAnchorProvider()
   const programId = useMemo(() => getCounterProgramId(cluster.network as Cluster), [cluster])
   const program = useMemo(() => getCounterProgram(provider, programId), [provider, programId])
+  
+  // Check wallet balance
+  const walletBalance = useQuery({
+    queryKey: ['wallet-balance', { endpoint: connection.rpcEndpoint, publicKey }],
+    queryFn: () => publicKey ? connection.getBalance(publicKey) : 0,
+    enabled: !!publicKey,
+  })
 
   const accounts = useQuery({
     queryKey: ['counter', 'all', { cluster }],
@@ -38,22 +46,59 @@ export function useCounterProgram() {
     mutationKey: ['journalEntry', 'create', {cluster }],
     // get this information from the front end
     mutationFn: async ({ title, message, owner}) => {
-      return program.methods
-        .createJournalEntry(title, message)
-        .accounts({
-          owner: owner,
-        })
-        .rpc();
+      // Check balance before attempting transaction
+      // Estimate: ~0.002 SOL for rent (account space ~1100 bytes) + transaction fee
+      const MINIMUM_BALANCE = 0.003 * LAMPORTS_PER_SOL; // 0.003 SOL
+      const balance = walletBalance.data ?? 0;
+      
+      if (balance < MINIMUM_BALANCE) {
+        const solNeeded = (MINIMUM_BALANCE - balance) / LAMPORTS_PER_SOL;
+        throw new Error(`Insufficient funds. You need at least ${solNeeded.toFixed(4)} more SOL for account creation and transaction fees.`);
+      }
+      
+      try {
+        return await program.methods
+          .createJournalEntry(title, message)
+          .accounts({
+            owner: owner,
+          })
+          .rpc();
+      } catch (error: any) {
+        console.error('Transaction failed:', error);
+        // Log detailed error information
+        if (error.logs) {
+          console.error('Transaction logs:', error.logs);
+        }
+        if (error.error) {
+          console.error('Error details:', error.error);
+        }
+        throw error;
+      }
     },
 
     onSuccess: (signature) => {
       transactionToast(signature);
       accounts.refetch();
+      walletBalance.refetch();
     },
 
     onError: (error) => {
       console.error('Error creating entry:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      let errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Provide more helpful error messages
+      if (errorMessage.includes('Insufficient funds')) {
+        // Keep the detailed message we already set
+      } else if (errorMessage.includes('0x1') || errorMessage.includes('insufficient funds')) {
+        errorMessage = 'Insufficient funds. You need SOL for rent (account creation) and transaction fees. Minimum ~0.003 SOL recommended.';
+      } else if (errorMessage.includes('0x0') || errorMessage.includes('already in use')) {
+        errorMessage = 'An entry with this title already exists for your wallet. Please choose a different title.';
+      } else if (errorMessage.includes('reverted') || errorMessage.includes('simulation')) {
+        errorMessage = 'Transaction simulation failed. This usually means insufficient funds or an account already exists. Check console for details.';
+      } else if (errorMessage.includes('Program')) {
+        errorMessage = `Program error: ${errorMessage}. Check browser console for more details.`;
+      }
+      
       toast.error(`Error creating entry: ${errorMessage}`);
     },
   });
@@ -64,6 +109,7 @@ export function useCounterProgram() {
     getProgramAccount,
     createEntry,
     programId,
+    walletBalance,
   };
 
 }

@@ -8,6 +8,9 @@ skip-lint = false
 [programs.localnet]
 counter = "CNZneaN4To4pfF4gHMGGpFfxyWmztQjTGngcRx6Lbsn4"
 
+[programs.devnet]
+counter = "CNZneaN4To4pfF4gHMGGpFfxyWmztQjTGngcRx6Lbsn4"
+
 [registry]
 url = "https://api.apr.dev"
 
